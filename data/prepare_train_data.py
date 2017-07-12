@@ -37,6 +37,7 @@ def dump_example(n):
     cx = intrinsics[0, 2]
     cy = intrinsics[1, 2]
     dump_dir = os.path.join(args.dump_root, example['folder_name'])
+    dump_dir_stereo = os.path.join(args.dump_root, 'stereo_images')
     # if not os.path.isdir(dump_dir):
     #     os.makedirs(dump_dir, exist_ok=True)
     try: 
@@ -49,6 +50,15 @@ def dump_example(n):
     dump_cam_file = dump_dir + '/%s_cam.txt' % example['file_name']
     with open(dump_cam_file, 'w') as f:
         f.write('%f,0.,%f,0.,%f,%f,0.,0.,1.' % (fx, cx, fy, cy))
+
+    if (example['left_image']):
+	extrinsics = example['extrinsics']
+	stereo_image = concat_image_seq([example['left_image'], example['right_image']])
+	dump_img_file = dump_dir_stereo + '/%s.jpg' % example['file_name']
+	scipy.misc.imsave(dump_img_file, stereo_image.astype(np.uint8))
+	dump_cam_file = dump_stereo_dir + '/%s_cam.txt' % example['file_name']
+	with open(dump_cam_file, 'w') as f:
+		f.write(extrinsics)
 
 def main():
     if not os.path.exists(args.dump_root):

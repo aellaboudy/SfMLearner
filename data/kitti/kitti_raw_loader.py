@@ -3,6 +3,9 @@ import numpy as np
 from glob import glob
 import os
 import scipy.misc
+from kitti_eval.pose_evaluation_utils import *
+
+
 
 class kitti_raw_loader(object):
     def __init__(self, 
@@ -22,8 +25,7 @@ class kitti_raw_loader(object):
         self.img_width = img_width
         self.seq_length = seq_length
         self.cam_ids = ['02', '03']
-        self.date_list = ['2011_09_26', '2011_09_28', '2011_09_29', 
-                          '2011_09_30', '2011_10_03']
+        self.date_list = ['2011_09_26']
         self.collect_static_frames(static_frames_file)
         self.collect_train_frames()
 
@@ -43,7 +45,7 @@ class kitti_raw_loader(object):
         all_frames = []
         for date in self.date_list:
             drive_set = os.listdir(self.dataset_dir + date + '/')
-            for dr in drive_set:
+	    for dr in drive_set:
                 drive_dir = os.path.join(self.dataset_dir, date, dr)
                 if os.path.isdir(drive_dir):
                     if dr[:-5] in self.test_scenes:
@@ -65,6 +67,7 @@ class kitti_raw_loader(object):
 
         self.train_frames = all_frames
         self.num_train = len(self.train_frames)
+
 
     def is_valid_sample(self, frames, tgt_idx):
         N = len(frames)
@@ -100,6 +103,14 @@ class kitti_raw_loader(object):
             image_seq.append(curr_img)
         return image_seq, zoom_x, zoom_y
 
+    def load_image_sequence_posed(self, frames, tgt_idx):
+	image_seq_posed = []
+	curr_drive, curr_cid, curr_frame_id = frames[tgt_idx].split(' ')
+	left_image = scipy.misc.imresize(self.load_image_raw(curr_drive, '02', curr_frame_id), (self.img_height, self.img_width))
+	right_image = scipy.misc.imresize(self.load_image_raw(curr_drive, '03', curr_frame_id), (self.img_height, self.img_width))
+	return left_image, right_image
+	
+
     def load_example(self, frames, tgt_idx):
         image_seq, zoom_x, zoom_y = self.load_image_sequence(frames, tgt_idx, self.seq_length)
         tgt_drive, tgt_cid, tgt_frame_id = frames[tgt_idx].split(' ')
@@ -110,7 +121,15 @@ class kitti_raw_loader(object):
         example['image_seq'] = image_seq
         example['folder_name'] = tgt_drive + '_' + tgt_cid + '/'
         example['file_name'] = tgt_frame_id
-        return example
+
+	if (tgt_cid == '02'):
+                left_image,right_image = self.load_image_sequence_posed(frames,tgt_idx)
+		extrinsics = self.load_extrinsics_raw(tgt_drive, tgt_cid, tgt_frame_id)
+		example['left_image'] = left_image
+		example['right_image'] = right_image
+		example['extrinsics'] = extrinsics
+        
+	return example
 
     def load_image_raw(self, drive, cid, frame_id):
         date = drive[:10]
@@ -127,6 +146,42 @@ class kitti_raw_loader(object):
         intrinsics = P_rect[:3, :3]
         return intrinsics
 
+    def load_extrinsics_raw(self,drive,cid,frame_id):
+	date = drive[:10]
+	calib_file = os.path.join(self.dataset_dir, date, 'calib_cam_to_cam.txt')
+
+	#print calib_file
+
+	filedata = self.read_raw_calib_file(calib_file)
+
+
+	#print filedata['R_02']
+
+
+	R_mat_left = np.reshape(filedata['R_02'], (3, 3))
+	R_mat_right = np.reshape(filedata['R_03'], (3, 3))
+
+	print ("This is a rotation matrix")	
+	print(R_mat_left)
+	
+	T_mat_left = np.reshape(filedata['T_02'], (1, 3))
+	T_mat_right = np.reshape(filedata['T_03'], (1, 3))
+
+	print ("This is a translation matrix")
+	print (T_mat_left)
+
+	
+	stereo_rotation = np.dot(R_mat_left,np.linalg.inv(R_mat_right))
+	stereo_euler = mat2euler(stereo_rotation)
+
+	stereo_translation = T_mat_right - T_mat_left
+	
+
+	return [stereo_translation[0], stereo_translation[1], stereo_trasnlation[2] ,stereo_euler[2], stereo_euler[1] ,stereo_euler[0]]
+	
+
+
+	
     def read_raw_calib_file(self,filepath):
         # From https://github.com/utiasSTARS/pykitti/blob/master/pykitti/utils.py
         """Read in a calibration file and parse into a dictionary."""

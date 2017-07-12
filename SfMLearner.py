@@ -28,12 +28,14 @@ class SfMLearner(object):
                 seed=seed, 
                 shuffle=True)
 
+
+
             # Load images
             img_reader = tf.WholeFileReader()
             _, image_contents = img_reader.read(image_paths_queue)
             image_seq = tf.image.decode_jpeg(image_contents)
             image_seq = self.preprocess_image(image_seq)
-            tgt_image, src_image_stack = \
+	    tgt_image, src_image_stack = \
                 self.unpack_image_sequence(image_seq)
 
             # Load camera intrinsics
@@ -59,12 +61,15 @@ class SfMLearner(object):
                                                       is_training=True)
             pred_depth = [1./d for d in pred_disp]
 
-        with tf.name_scope("pose_and_explainability_prediction"):
-            pred_poses, pred_exp_logits, pose_exp_net_endpoints = \
-                pose_exp_net(tgt_image,
-                             src_image_stack, 
-                             do_exp=(opt.explain_reg_weight > 0),
-                             is_training=True)
+	if (opt.num_source > 2): # Only train ego-motion in the temporal case
+        	with tf.name_scope("pose_and_explainability_prediction"):
+            		pred_poses, pred_exp_logits, pose_exp_net_endpoints = \
+                		pose_exp_net(tgt_image,
+                             	src_image_stack, 
+                             	do_exp=(opt.explain_reg_weight > 0),
+                             	is_training=True)
+	else:
+		pred_poses = # Get the pred_pose from stereo calibration
 
         with tf.name_scope("compute_loss"):
             pixel_loss = 0
