@@ -3,7 +3,11 @@ import numpy as np
 from glob import glob
 import os
 import scipy.misc
-from kitti_eval.pose_evaluation_utils import *
+import sys
+
+sys.path.append("/home/ameer/Downloads/SfMLearner/kitti_eval")
+
+from pose_evaluation_utils import *
 
 
 
@@ -161,23 +165,28 @@ class kitti_raw_loader(object):
 	R_mat_left = np.reshape(filedata['R_02'], (3, 3))
 	R_mat_right = np.reshape(filedata['R_03'], (3, 3))
 
-	print ("This is a rotation matrix")	
-	print(R_mat_left)
+	#print ("This is a rotation matrix")	
+	#print(R_mat_left)
 	
 	T_mat_left = np.reshape(filedata['T_02'], (1, 3))
 	T_mat_right = np.reshape(filedata['T_03'], (1, 3))
 
-	print ("This is a translation matrix")
-	print (T_mat_left)
+	#print ("This is a translation matrix")
+	#print (T_mat_left)
 
 	
 	stereo_rotation = np.dot(R_mat_left,np.linalg.inv(R_mat_right))
 	stereo_euler = mat2euler(stereo_rotation)
 
-	stereo_translation = T_mat_right - T_mat_left
-	
+	stereo_translation = T_mat_left - T_mat_right
 
-	return [stereo_translation[0], stereo_translation[1], stereo_trasnlation[2] ,stereo_euler[2], stereo_euler[1] ,stereo_euler[0]]
+
+	#print("This is the pose")
+	
+	#print [stereo_translation[0][0], stereo_translation[0][1], stereo_translation[0][2] ,stereo_euler[2], stereo_euler[1] ,stereo_euler[0]]
+
+
+	return [stereo_translation[0][0], stereo_translation[0][1], stereo_translation[0][2] ,stereo_euler[2], stereo_euler[1] ,stereo_euler[0]]
 	
 
 

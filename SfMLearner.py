@@ -17,7 +17,6 @@ class SfMLearner(object):
         with tf.name_scope("data_loading"):
             seed = random.randint(0, 2**31 - 1)
 
-            # Load the list of training files into queues
             file_list = self.format_file_list(opt.dataset_dir, 'train')
             image_paths_queue = tf.train.string_input_producer(
                 file_list['image_file_list'], 
@@ -28,44 +27,91 @@ class SfMLearner(object):
                 seed=seed, 
                 shuffle=True)
 
+	
             # Load images
             img_reader = tf.WholeFileReader()
             _, image_contents = img_reader.read(image_paths_queue)
-            image_seq = tf.image.decode_jpeg(image_contents)
-            image_seq = self.preprocess_image(image_seq)
-            tgt_image, src_image_stack = \
-                self.unpack_image_sequence(
-                    image_seq, opt.img_height, opt.img_width, opt.num_source)
+	    image_seq = tf.image.decode_jpeg(image_contents)
+	    image_seq = self.preprocess_image(image_seq)
+            
+	
+	    if "stereo" in opt.dataset_dir:
+		opt.num_source = 1
+		self.opt.num_source = 1
+		opt.explain_reg_weight = 0
+		tgt_image, src_image_stack = \
+			self.unpack_stereo_image_sequence(
+			image_seq, opt.img_height, opt.img_width, opt.num_source)
+	    else:	
+	    	tgt_image, src_image_stack = \
+                	self.unpack_image_sequence(
+                    	image_seq, opt.img_height, opt.img_width, opt.num_source)
+
+	    print "Target image is: "
+            print tgt_image
 
             # Load camera intrinsics
             cam_reader = tf.TextLineReader()
             _, raw_cam_contents = cam_reader.read(cam_paths_queue)
             rec_def = []
-            for i in range(9):
-                rec_def.append([1.])
-            raw_cam_vec = tf.decode_csv(raw_cam_contents, 
+	    if "stereo" in opt.dataset_dir:
+		for i in range(15):
+			rec_def.append([1.])
+		raw_cam_vec = tf.decode_csv(raw_cam_contents, 
+                                           record_defaults=rec_def)
+		raw_cam_vec_int = raw_cam_vec[0:9]
+		raw_cam_vec_ext = raw_cam_vec[9:15]
+		raw_cam_vec_int = tf.stack(raw_cam_vec_int)
+		raw_cam_vec_ext = tf.stack(raw_cam_vec_ext)
+		raw_cam_mat_int = tf.reshape(raw_cam_vec_int, [3,3])
+		proj_cam2cam = tf.reshape(raw_cam_vec_ext, [1,6])
+		proj_cam2pix, proj_pix2cam = self.get_multi_scale_intrinsics(
+                        raw_cam_mat_int, opt.num_scales)
+		# Form training batches
+                src_image_stack, tgt_image, proj_cam2pix, proj_pix2cam, proj_cam2cam = \
+                         tf.train.batch([src_image_stack, tgt_image, proj_cam2pix,
+                                        proj_pix2cam, proj_cam2cam], batch_size=opt.batch_size)
+	    else:
+            	for i in range(9):
+                	rec_def.append([1.])
+            	raw_cam_vec = tf.decode_csv(raw_cam_contents, 
                                         record_defaults=rec_def)
-            raw_cam_vec = tf.stack(raw_cam_vec)
-            raw_cam_mat = tf.reshape(raw_cam_vec, [3, 3])
-            proj_cam2pix, proj_pix2cam = self.get_multi_scale_intrinsics(
-                raw_cam_mat, opt.num_scales)
+		
+            
+	    	raw_cam_vec = tf.stack(raw_cam_vec)
+            	raw_cam_mat = tf.reshape(raw_cam_vec, [3, 3])
+            	proj_cam2pix, proj_pix2cam = self.get_multi_scale_intrinsics(
+                	raw_cam_mat, opt.num_scales)
 
-            # Form training batches
-            src_image_stack, tgt_image, proj_cam2pix, proj_pix2cam = \
-                    tf.train.batch([src_image_stack, tgt_image, proj_cam2pix, 
-                                    proj_pix2cam], batch_size=opt.batch_size)
+           	 # Form training batches
+            	src_image_stack, tgt_image, proj_cam2pix, proj_pix2cam = \
+                   	 tf.train.batch([src_image_stack, tgt_image, proj_cam2pix, 
+                                    	proj_pix2cam], batch_size=opt.batch_size)
+
 
         with tf.name_scope("depth_prediction"):
             pred_disp, depth_net_endpoints = disp_net(tgt_image, 
                                                       is_training=True)
             pred_depth = [1./d for d in pred_disp]
 
+	    print "Predicted depth is " 
+	    print pred_depth
+
         with tf.name_scope("pose_and_explainability_prediction"):
-            pred_poses, pred_exp_logits, pose_exp_net_endpoints = \
-                pose_exp_net(tgt_image,
+	    if "stereo" in opt.dataset_dir:
+		pred_poses = proj_cam2cam
+		pred_exp_logits = [None, None, None, None]
+		print "Predicted pose is " 
+		print pred_poses	
+	    else:
+            	pred_poses, pred_exp_logits, pose_exp_net_endpoints = \
+                	pose_exp_net(tgt_image,
                              src_image_stack, 
                              do_exp=(opt.explain_reg_weight > 0),
                              is_training=True)
+
+		print "Predicted pose is " 
+		print pred_poses
 
         with tf.name_scope("compute_loss"):
             pixel_loss = 0
@@ -345,6 +391,21 @@ class SfMLearner(object):
             fetches['pose'] = self.pred_poses
         results = sess.run(fetches, feed_dict={self.inputs:inputs})
         return results
+
+
+    def unpack_stereo_image_sequence(self, image_seq, img_height, img_width,num_source=1):
+	tgt_start_idx = 0
+	tgt_image = tf.slice(image_seq,
+				[0, tgt_start_idx, 0],
+				[-1, img_width, -1])
+	src_image = tf.slice(image_seq,
+                               [0, int(tgt_start_idx + img_width), 0],
+                               [-1, img_width, -1])
+
+	tgt_image.set_shape([img_height, img_width, 3])
+	src_image.set_shape([img_height, img_width, 3])
+
+ 	return tgt_image, src_image
 
     def unpack_image_sequence(self, image_seq, img_height, img_width, num_source):
         # Assuming the center image is the target frame

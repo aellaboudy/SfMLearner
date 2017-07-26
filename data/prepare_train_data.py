@@ -37,7 +37,8 @@ def dump_example(n):
     cx = intrinsics[0, 2]
     cy = intrinsics[1, 2]
     dump_dir = os.path.join(args.dump_root, example['folder_name'])
-    dump_dir_stereo = os.path.join(args.dump_root, 'stereo_images')
+    dump_dir_stereo = "./stereoimages/images/"
+    print dump_dir_stereo
     # if not os.path.isdir(dump_dir):
     #     os.makedirs(dump_dir, exist_ok=True)
     try: 
@@ -45,20 +46,29 @@ def dump_example(n):
     except OSError:
         if not os.path.isdir(dump_dir):
             raise
+
+    try:
+        os.makedirs(dump_dir_stereo)
+    except OSError:
+        if not os.path.isdir(dump_dir_stereo):
+            raise
+
+
     dump_img_file = dump_dir + '/%s.jpg' % example['file_name']
     scipy.misc.imsave(dump_img_file, image_seq.astype(np.uint8))
     dump_cam_file = dump_dir + '/%s_cam.txt' % example['file_name']
     with open(dump_cam_file, 'w') as f:
         f.write('%f,0.,%f,0.,%f,%f,0.,0.,1.' % (fx, cx, fy, cy))
 
-    if (example['left_image']):
+    if ('left_image' in example):
 	extrinsics = example['extrinsics']
 	stereo_image = concat_image_seq([example['left_image'], example['right_image']])
 	dump_img_file = dump_dir_stereo + '/%s.jpg' % example['file_name']
 	scipy.misc.imsave(dump_img_file, stereo_image.astype(np.uint8))
-	dump_cam_file = dump_stereo_dir + '/%s_cam.txt' % example['file_name']
+	dump_cam_file = dump_dir_stereo + '/%s_cam.txt' % example['file_name']
 	with open(dump_cam_file, 'w') as f:
-		f.write(extrinsics)
+		f.write('%f,0.,%f,0.,%f,%f,0.,0.,1.' % (fx, cx, fy, cy))
+		f.write(',%f,%f,%f,%f,%f,%f' % (extrinsics[0],extrinsics[1],extrinsics[2],extrinsics[3],extrinsics[4],extrinsics[5]))
 
 def main():
     if not os.path.exists(args.dump_root):
@@ -112,6 +122,23 @@ def main():
                         vf.write('%s %s\n' % (s, frame))
                     else:
                         tf.write('%s %s\n' % (s, frame))
+
+    subfolders = os.listdir("./stereoimages")
+    with open('./stereoimages/train.txt', 'w') as tf:
+    	with open('./stereoimages/val.txt', 'w') as vf:
+    	    for s in subfolders:
+                if not os.path.isdir('./stereoimages' + '/%s' % s):
+                    continue
+                imfiles = glob(os.path.join('./stereoimages', s, '*.jpg'))
+                frame_ids = [os.path.basename(fi).split('.')[0] for fi in imfiles]
+                for frame in frame_ids:
+                    if np.random.random() < 0.1:
+                        vf.write('%s %s\n' % (s, frame))
+                    else:
+                        tf.write('%s %s\n' % (s, frame))
+
+     
+
 
 main()
 
